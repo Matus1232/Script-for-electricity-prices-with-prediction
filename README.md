@@ -20,7 +20,7 @@ Historické dáta pochádzajú z API [Energy-Charts](https://energy-charts.info)
 na súkromné a interné použitie. Zverejniť sa nesmú ani surové dáta, ani nič, čo z nich vznikne
 (grafy, tabuľky, vypočítané čísla). Preto:
 
-- databáza `prices.db` a súbor `prices_electricity.csv` sú v [`.gitignore`](.gitignore),
+- databáza `prices.db` je v [`.gitignore`](.gitignore),
 - notebook je v repozitári bez výstupov, grafy sa zobrazia až po jeho spustení,
 - zhrnutie na konci notebooku popisuje zistenia len slovne, bez čísel.
 
@@ -32,7 +32,6 @@ Kód je verejný. Kto ho spustí, stiahne si dáta sám pre vlastnú potrebu.
 flowchart LR
     W["energyprices.eu<br>dnešné ceny"] -- "scraping" --> M["main.py"]
     E["Energy-Charts API<br>história od 2015"] -- "JSON" --> M
-    M -- "pridá riadky" --> C["prices_electricity.csv"]
     M -- "uloží" --> D[("prices.db")]
     D -- "pandas" --> N["analysis.ipynb<br>štatistika a grafy"]
 ```
@@ -44,10 +43,12 @@ Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web uk
 
 `main.py` pri každom spustení urobí tri veci:
 
-1. **Stiahne dnešné ceny z webu.** Z HTML tabuľky prečíta 24 hodín, vypíše ich do terminálu
-   a pridá na koniec súboru `prices_electricity.csv`.
+1. **Stiahne dnešné ceny z webu.** Z HTML tabuľky prečíta 24 hodín a vypíše ich do terminálu.
 2. **Doplní históriu z API.** Pozrie sa, ktoré dni v databáze chýbajú, a stiahne len tie.
 3. **Uloží dnešné ceny do databázy.**
+
+Každý krok je samostatná funkcia (`scrape_today`, `missing_ranges`, `fetch_history`, `save`)
+a funkcia `main` ich len zavolá v tomto poradí.
 
 Ktoré dni sa sťahujú z API:
 
@@ -57,17 +58,22 @@ flowchart TD
     P -- áno --> ALL["Stiahne všetko<br>od 1. 1. 2015 po včerajšok"]
     P -- nie --> B{"Chýbajú dni pred<br>najstarším dňom?"}
     B -- áno --> OLD["Stiahne ich"]
-    B -- nie --> A{"Chýbajú dni medzi<br>posledným dňom a včerajškom?"}
+    B -- nie --> A{"Je posledný deň<br>v databáze starší ako dnes?"}
     OLD --> A
-    A -- áno --> NEW["Stiahne ich"]
+    A -- áno --> NEW["Stiahne posledný deň znova<br>a všetky dni po ňom až po včerajšok"]
     A -- nie --> X["Nesťahuje nič"]
 ```
 
-Prvé spustenie trvá asi minútu a pol. Ďalšie spustenia v ten istý deň už z API nesťahujú nič
+Prvé spustenie trvá dve až tri minúty. Ďalšie spustenia v ten istý deň už z API nesťahujú nič
 a po pár vynechaných dňoch stiahnu len tie dni.
+
+Posledný deň sa sťahuje znova zámerne. Ceny z webu sú zaokrúhlené na 3 desatinné miesta, z API
+na 5. Keď skript beží každý deň, včerajšie ceny z webu sa tak na druhý deň nahradia presnejšími z API.
 
 Pár vecí, ktoré nie sú na prvý pohľad vidieť:
 
+- **Výpadok webu nezastaví skript.** Keď web nefunguje alebo nie je internet, skript to vypíše
+  a históriu z API doplní aj tak. Dnešné ceny sa vtedy uložia pri ďalšom úspešnom spustení.
 - **API sa nesmie zahltiť.** Pustí približne jednu požiadavku za 15 sekúnd. Skript preto sťahuje
   po celých rokoch (jedna požiadavka = jeden rok). Keď API odpovie `429 Too Many Requests`,
   počká toľko, koľko server povie v hlavičke `Retry-After`, a skúsi to znova.
@@ -137,8 +143,10 @@ git clone https://github.com/Matus1232/Script-for-electricity-prices-with-predic
 ### 2. Nainštaluj knižnice
 
 ```bash
-pip install requests beautifulsoup4 pandas numpy matplotlib ipykernel
+pip install -r requirements.txt
 ```
+
+Presné verzie sú v [`requirements.txt`](requirements.txt):
 
 | Knižnica | Načo je |
 |---|---|
@@ -155,8 +163,7 @@ python main.py
 ```
 
 Skript vypíše dnešné ceny po hodinách a potom postup sťahovania histórie po rokoch. Na konci
-vzniknú v priečinku súbory `prices.db` a `prices_electricity.csv`. Aby databáza ostala aktuálna,
-stačí skript spustiť raz za deň.
+vznikne v priečinku súbor `prices.db`. Aby databáza ostala aktuálna, stačí skript spustiť raz za deň.
 
 ### 4. Spusti analýzu
 
@@ -173,17 +180,16 @@ s upozornením, že treba najprv spustiť `main.py`.
   `interpolate()`, inak ostávajú prázdne.
 - **Letný čas.** Posledná nedeľa v marci má len 23 hodín. V októbri je hodina 2:00 dvakrát
   a v databáze je z nich priemer.
-- **Rôzna presnosť.** Dni stiahnuté z webu majú cenu zaokrúhlenú na 3 desatinné miesta, dni z API
-  na 5. Dni z webu sa neskôr presnejšími hodnotami z API neprepíšu.
-- **CSV môže mať duplikáty.** Súbor `prices_electricity.csv` sa len dopĺňa, takže viac spustení
-  v ten istý deň v ňom ten deň zopakuje. Databáza tento problém nemá.
+- **Dnešok je menej presný.** Kým skript nebeží znova na ďalší deň, má dnešok ceny z webu
+  zaokrúhlené na 3 desatinné miesta.
 
 ## Štruktúra projektu
 
 ```
-main.py           zber dát: scraping webu, história z API, zápis do CSV a databázy
+main.py           zber dát: scraping webu, história z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
-.gitignore        dáta (prices.db, prices_electricity.csv), ktoré sa nesmú zverejniť
+requirements.txt  knižnice s presnými verziami
+.gitignore        dáta, ktoré sa nesmú zverejniť
 prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 ```
 
@@ -192,6 +198,6 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 - [x] Scraping dnešných cien z webu
 - [x] Databáza SQLite a história od roku 2015 z API
 - [x] Analýza: popisná štatistika, časové rady, regresia
-- [ ] `requirements.txt`
-- [ ] Upratanie `main.py` do funkcií
+- [x] `requirements.txt`
+- [x] Upratanie `main.py` do funkcií
 - [ ] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, porovnanie cez MAE)

@@ -1,0 +1,9 @@
+# main.py - downloading prices
+requests==2.34.2
+beautifulsoup4==4.15.0
+
+# analysis.ipynb - analysis and charts
+pandas==3.0.6
+numpy==2.5.4
+matplotlib==3.11.2
+ipykernel==7.4.0
