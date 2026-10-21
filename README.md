@@ -15,6 +15,7 @@ Projekt má tri časti:
   ako sa cena menila počas rokov, v ktorú hodinu je elektrina najlacnejšia alebo ako často je cena záporná.
 - **Predikcia** ([`prediction.ipynb`](prediction.ipynb)): modely strojového učenia, ktoré predpovedajú
   24 hodinových cien na zajtra, porovnané s jednoduchým odhadom „zajtra bude ako dnes“.
+  Najlepší model potom používa skript [`predict.py`](predict.py), ktorý predpoveď vypíše jedným príkazom.
 
 ![Ukážka: denné ceny a kĺzavý priemer (vymyslené dáta)](docs/img/moving-average.png)
 
@@ -44,6 +45,7 @@ flowchart LR
     M -- "uloží" --> D[("prices.db")]
     D -- "pandas" --> N["analysis.ipynb<br>štatistika a grafy"]
     D -- "pandas" --> P["prediction.ipynb<br>strojové učenie"]
+    D -- "pandas" --> S["predict.py<br>predpoveď na zajtra"]
 ```
 
 Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web ukazuje len dnešok
@@ -193,6 +195,7 @@ Presné verzie sú v [`requirements.txt`](requirements.txt):
 | `matplotlib` | grafy |
 | `ipykernel` | aby VS Code vedel spúšťať notebook |
 | `scikit-learn` | modely strojového učenia a metriky |
+| `joblib` | uloženie natrénovaného modelu do súboru |
 
 ### 3. Stiahni dáta
 
@@ -210,6 +213,24 @@ knižnice, a klikni na **Run All**. Ak `prices.db` ešte neexistuje, bunka v sek
 s upozornením, že treba najprv spustiť `main.py`.
 
 Rovnako spustíš aj `prediction.ipynb`.
+
+### 5. Predpoveď na zajtra
+
+```bash
+python predict.py
+```
+
+Skript vypíše ceny na 24 hodín dňa po poslednom dni v databáze a najlacnejšie 4 hodiny za sebou.
+Pri prvom spustení natrénuje model (gradient boosting, ten istý ako v notebooku) a uloží ho do
+`models/model.joblib`, ďalšie spustenia ho len načítajú.
+
+| Príkaz | Čo robí |
+|---|---|
+| `python predict.py` | predpoveď s uloženým modelom |
+| `python predict.py --train` | natrénuje model znova na najnovších dátach |
+| `python predict.py --hours 6` | najlacnejších 6 hodín za sebou namiesto 4 |
+
+Model je naučený na dátach z Energy-Charts, preto je tiež v `.gitignore`.
 
 > ⚠️ Pred commitom daj v notebooku **Clear All Outputs**. VS Code ukladá grafy a tabuľky priamo do
 > súboru notebooku a tie sa na GitHub dostať nesmú.
@@ -229,6 +250,7 @@ Rovnako spustíš aj `prediction.ipynb`.
 main.py           zber dát: scraping webu, história z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
 prediction.ipynb  predikcia: strojové učenie
+predict.py        predpoveď na zajtra jedným príkazom, uloží model do models/ (nie je v Gite)
 requirements.txt  knižnice s presnými verziami
 docs/             ilustračné grafy pre README a skript, ktorý ich kreslí z vymyslených dát
 .gitignore        dáta, ktoré sa nesmú zverejniť
@@ -243,5 +265,6 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 - [x] `requirements.txt`
 - [x] Upratanie `main.py` do funkcií
 - [x] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, gradient boosting)
+- [x] Skript `predict.py` s uloženým modelom
 - [ ] Ďalšie vstupy: sviatky, predpoveď počasia a výroby zo slnka a vetra
 - [ ] Experiment s hlbokým učením (MLP, LSTM)
