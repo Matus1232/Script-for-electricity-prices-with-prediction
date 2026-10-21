@@ -4,3 +4,6 @@ prices_electricity.csv
 
 # Trained model - learned from the same data, so it is not published either
 models/
+
+# Python cache
+__pycache__/

@@ -11,3 +11,6 @@ ipykernel==7.4.0
 # prediction.ipynb, predict.py - machine learning
 scikit-learn==1.9.1
 joblib==1.6.0
+
+# app.py - dashboard
+streamlit==1.66.1

@@ -7,7 +7,7 @@ Ide o **day-ahead ceny**: cenu na každú hodinu zajtrajška určí burza vždy 
 veľkoobchodné ceny bez DPH, distribúcie a ďalších poplatkov, takže nie sú to isté, čo platí domácnosť
 na faktúre. Dobre však ukazujú, kedy je elektriny v sieti dosť a kedy je drahá.
 
-Projekt má tri časti:
+Projekt má štyri časti:
 
 - **Zber dát** ([`main.py`](main.py)): stiahne dnešné ceny z webu, pri prvom spustení dotiahne celú
   históriu od roku 2015 a pri ďalších spusteniach doplní len dni, ktoré chýbajú.
@@ -16,6 +16,8 @@ Projekt má tri časti:
 - **Predikcia** ([`prediction.ipynb`](prediction.ipynb)): modely strojového učenia, ktoré predpovedajú
   24 hodinových cien na zajtra, porovnané s jednoduchým odhadom „zajtra bude ako dnes“.
   Najlepší model potom používa skript [`predict.py`](predict.py), ktorý predpoveď vypíše jedným príkazom.
+- **Dashboard** ([`app.py`](app.py)): interaktívna webová aplikácia v Streamlite s filtrom obdobia,
+  hlavnými číslami, grafmi a predpoveďou na zajtra.
 
 ![Ukážka: denné ceny a kĺzavý priemer (vymyslené dáta)](docs/img/moving-average.png)
 
@@ -46,6 +48,7 @@ flowchart LR
     D -- "pandas" --> N["analysis.ipynb<br>štatistika a grafy"]
     D -- "pandas" --> P["prediction.ipynb<br>strojové učenie"]
     D -- "pandas" --> S["predict.py<br>predpoveď na zajtra"]
+    S -- "funkcie" --> A["app.py<br>dashboard"]
 ```
 
 Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web ukazuje len dnešok
@@ -196,6 +199,7 @@ Presné verzie sú v [`requirements.txt`](requirements.txt):
 | `ipykernel` | aby VS Code vedel spúšťať notebook |
 | `scikit-learn` | modely strojového učenia a metriky |
 | `joblib` | uloženie natrénovaného modelu do súboru |
+| `streamlit` | dashboard (grafy v ňom kreslí Altair, ktorý sa nainštaluje so Streamlitom) |
 
 ### 3. Stiahni dáta
 
@@ -232,6 +236,30 @@ Pri prvom spustení natrénuje model (gradient boosting, ten istý ako v noteboo
 
 Model je naučený na dátach z Energy-Charts, preto je tiež v `.gitignore`.
 
+### 6. Dashboard
+
+```bash
+streamlit run app.py
+```
+
+V prehliadači sa otvorí `http://localhost:8501`. Vľavo sa vyberá obdobie a dĺžka okna na nabíjanie,
+hore sú hlavné čísla za obdobie (priemer, najlacnejšia a najdrahšia hodina, počet záporných hodín)
+a pod nimi štyri záložky:
+
+| Záložka | Čo ukazuje |
+|---|---|
+| Predpoveď na zajtra | 24 predpovedaných cien, najlacnejšie okno oranžovo |
+| Vývoj ceny | denné ceny ako bodky a 30-dňový kĺzavý priemer ako čiara |
+| Priebeh dňa | priemerná cena podľa hodiny, pracovný deň vs. víkend |
+| Hodina × mesiac | heatmapa |
+
+Na grafy sa dá najazdiť myšou a zobrazí sa presná hodnota. Predpoveď používa funkcie a uložený
+model z `predict.py`.
+
+**Demo režim:** `streamlit run app.py -- --demo` (alebo keď `prices.db` neexistuje) zobrazí
+vymyslené dáta s upozornením navrchu. Model sa vtedy trénuje len v pamäti a uložený model
+neprepíše. Tento režim sa dá ukázať aj verejne, skutočné dáta len lokálne.
+
 > ⚠️ Pred commitom daj v notebooku **Clear All Outputs**. VS Code ukladá grafy a tabuľky priamo do
 > súboru notebooku a tie sa na GitHub dostať nesmú.
 
@@ -251,6 +279,7 @@ main.py           zber dát: scraping webu, história z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
 prediction.ipynb  predikcia: strojové učenie
 predict.py        predpoveď na zajtra jedným príkazom, uloží model do models/ (nie je v Gite)
+app.py            dashboard v Streamlite, so skutočnými alebo vymyslenými dátami
 requirements.txt  knižnice s presnými verziami
 docs/             ilustračné grafy pre README a skript, ktorý ich kreslí z vymyslených dát
 .gitignore        dáta, ktoré sa nesmú zverejniť
@@ -266,5 +295,6 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 - [x] Upratanie `main.py` do funkcií
 - [x] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, gradient boosting)
 - [x] Skript `predict.py` s uloženým modelom
+- [x] Dashboard v Streamlite s demo režimom
 - [ ] Ďalšie vstupy: sviatky, predpoveď počasia a výroby zo slnka a vetra
 - [ ] Experiment s hlbokým učením (MLP, LSTM)
