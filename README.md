@@ -1,18 +1,20 @@
 # Ceny elektriny na Slovensku
 
-Projekt, ktorý zbiera hodinové ceny elektriny na Slovensku, ukladá ich do databázy a analyzuje ich.
-Cieľom je neskôr ceny aj predpovedať.
+Projekt, ktorý zbiera hodinové ceny elektriny na Slovensku, ukladá ich do databázy, analyzuje ich
+a pomocou strojového učenia predpovedá ceny na ďalší deň.
 
 Ide o **day-ahead ceny**: cenu na každú hodinu zajtrajška určí burza vždy deň vopred. Sú to
 veľkoobchodné ceny bez DPH, distribúcie a ďalších poplatkov, takže nie sú to isté, čo platí domácnosť
 na faktúre. Dobre však ukazujú, kedy je elektriny v sieti dosť a kedy je drahá.
 
-Projekt má dve časti:
+Projekt má tri časti:
 
 - **Zber dát** ([`main.py`](main.py)): stiahne dnešné ceny z webu, pri prvom spustení dotiahne celú
   históriu od roku 2015 a pri ďalších spusteniach doplní len dni, ktoré chýbajú.
 - **Analýza** ([`analysis.ipynb`](analysis.ipynb)): Jupyter notebook so štatistikou a grafmi, napríklad
   ako sa cena menila počas rokov, v ktorú hodinu je elektrina najlacnejšia alebo ako často je cena záporná.
+- **Predikcia** ([`prediction.ipynb`](prediction.ipynb)): modely strojového učenia, ktoré predpovedajú
+  24 hodinových cien na zajtra, porovnané s jednoduchým odhadom „zajtra bude ako dnes“.
 
 ![Ukážka: denné ceny a kĺzavý priemer (vymyslené dáta)](docs/img/moving-average.png)
 
@@ -41,6 +43,7 @@ flowchart LR
     E["Energy-Charts API<br>história od 2015"] -- "JSON" --> M
     M -- "uloží" --> D[("prices.db")]
     D -- "pandas" --> N["analysis.ipynb<br>štatistika a grafy"]
+    D -- "pandas" --> P["prediction.ipynb<br>strojové učenie"]
 ```
 
 Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web ukazuje len dnešok
@@ -142,6 +145,25 @@ Hlavné zistenia zo skutočných dát (slovne, presné čísla ukáže notebook 
 - Hodín so zápornou cenou v posledných rokoch výrazne pribudlo.
 - Cena silno súvisí s cenou pred hodinou, pred dňom aj pred týždňom, čo je dobrý základ pre predikciu.
 
+### Predikcia
+
+Úloha: dnes ráno, ešte pred zverejnením zajtrajších cien (okolo 13:00), predpovedať 24 hodinových cien
+na zajtra. Model smie použiť len to, čo je v tej chvíli známe, teda ceny do dneška vrátane.
+
+| Krok | Čo sa robí |
+|---|---|
+| Vstupy | hodina, deň v týždni, mesiac, víkend, cena v tú istú hodinu pred 1, 2 a 7 dňami, priemer predchádzajúceho dňa a týždňa |
+| Rozdelenie dát | podľa času, nie náhodne: trénovanie 2023 – 2024, validácia 2025, test 2026 |
+| Baseline | „zajtra = dnes“ a „zajtra = pred týždňom“, každý model ich musí poraziť |
+| Modely | lineárna regresia (s one-hot a škálovaním v `Pipeline`), Random Forest, gradient boosting (scikit-learn) |
+| Vyhodnotenie | MAE a RMSE, chyby podľa hodiny a mesiaca, dôležitosť vstupov (`permutation_importance`) |
+| Finálny test | najlepší model sa raz vyhodnotí na roku 2026, ktorý pri vývoji nevidel |
+| Výstup | predpoveď na zajtra a najlacnejšie 4 hodiny za sebou (napr. na nabíjanie elektromobilu) |
+
+Výsledky slovne: všetky modely sú lepšie ako baseline, rozdiely medzi nimi sú malé. Najdôležitejší vstup
+je včerajšia cena v tú istú hodinu. Najväčšie chyby sú cez deň a pri večernej špičke, prudké výkyvy
+sa z minulých cien predpovedať nedajú.
+
 ## Spustenie
 
 Potrebuješ [Python](https://www.python.org/downloads/) 3.12 alebo novší a [Git](https://git-scm.com/).
@@ -170,6 +192,7 @@ Presné verzie sú v [`requirements.txt`](requirements.txt):
 | `pandas`, `numpy` | práca s dátami a výpočty v notebooku |
 | `matplotlib` | grafy |
 | `ipykernel` | aby VS Code vedel spúšťať notebook |
+| `scikit-learn` | modely strojového učenia a metriky |
 
 ### 3. Stiahni dáta
 
@@ -185,6 +208,8 @@ vznikne v priečinku súbor `prices.db`. Aby databáza ostala aktuálna, stačí
 Otvor `analysis.ipynb` vo VS Code, vpravo hore vyber kernel s Pythonom, ktorý má nainštalované
 knižnice, a klikni na **Run All**. Ak `prices.db` ešte neexistuje, bunka v sekcii 1 skončí chybou
 s upozornením, že treba najprv spustiť `main.py`.
+
+Rovnako spustíš aj `prediction.ipynb`.
 
 > ⚠️ Pred commitom daj v notebooku **Clear All Outputs**. VS Code ukladá grafy a tabuľky priamo do
 > súboru notebooku a tie sa na GitHub dostať nesmú.
@@ -203,6 +228,7 @@ s upozornením, že treba najprv spustiť `main.py`.
 ```
 main.py           zber dát: scraping webu, história z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
+prediction.ipynb  predikcia: strojové učenie
 requirements.txt  knižnice s presnými verziami
 docs/             ilustračné grafy pre README a skript, ktorý ich kreslí z vymyslených dát
 .gitignore        dáta, ktoré sa nesmú zverejniť
@@ -216,4 +242,6 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 - [x] Analýza: popisná štatistika, časové rady, regresia
 - [x] `requirements.txt`
 - [x] Upratanie `main.py` do funkcií
-- [ ] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, porovnanie cez MAE)
+- [x] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, gradient boosting)
+- [ ] Ďalšie vstupy: sviatky, predpoveď počasia a výroby zo slnka a vetra
+- [ ] Experiment s hlbokým učením (MLP, LSTM)

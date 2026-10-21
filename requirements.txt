@@ -7,3 +7,6 @@ pandas==3.0.6
 numpy==2.5.4
 matplotlib==3.11.2
 ipykernel==7.4.0
+
+# prediction.ipynb - machine learning
+scikit-learn==1.9.1
