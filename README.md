@@ -14,15 +14,22 @@ Projekt má dve časti:
 - **Analýza** ([`analysis.ipynb`](analysis.ipynb)): Jupyter notebook so štatistikou a grafmi, napríklad
   ako sa cena menila počas rokov, v ktorú hodinu je elektrina najlacnejšia alebo ako často je cena záporná.
 
-## Prečo tu nie sú grafy
+![Ukážka: denné ceny a kĺzavý priemer (vymyslené dáta)](docs/img/moving-average.png)
+
+> **Grafy v tomto README sú z vymyslených dát**, nie zo skutočných cien. Prečo, je vysvetlené nižšie.
+
+## Prečo sú grafy len ilustračné
 
 Historické dáta pochádzajú z API [Energy-Charts](https://energy-charts.info), ktoré ich poskytuje len
 na súkromné a interné použitie. Zverejniť sa nesmú ani surové dáta, ani nič, čo z nich vznikne
 (grafy, tabuľky, vypočítané čísla). Preto:
 
 - databáza `prices.db` je v [`.gitignore`](.gitignore),
-- notebook je v repozitári bez výstupov, grafy sa zobrazia až po jeho spustení,
-- zhrnutie na konci notebooku popisuje zistenia len slovne, bez čísel.
+- notebook je v repozitári bez výstupov, grafy zo skutočných dát sa zobrazia až po jeho spustení,
+- zhrnutie na konci notebooku popisuje zistenia len slovne, bez čísel,
+- grafy v README nakreslil skript [`docs/example_charts.py`](docs/example_charts.py) z náhodných čísel.
+  Tie len napodobňujú typické tvary (denný cyklus, víkendy, ročné obdobia), aby bolo vidno, aké grafy
+  notebook kreslí. Každý graf má pod nadpisom poznámku, že nejde o skutočné ceny.
 
 Kód je verejný. Kto ho spustí, stiahne si dáta sám pre vlastnú potrebu.
 
@@ -117,7 +124,15 @@ Notebook číta dáta priamo z databázy cez `pd.read_sql` a každá sekcia má 
 | 12 | Kolísanie počas dňa | rozdiel medzi najdrahšou a najlacnejšou hodinou dňa |
 | 13 | Regresia a autokorelácia | dnešná cena vs. včerajšia, regresná priamka, R², autokorelácia |
 
-Hlavné zistenia (slovne, presné čísla ukáže notebook po spustení):
+Ukážky grafov (vymyslené dáta, rovnaký typ grafu ako v notebooku):
+
+| Priebeh dňa (sekcia 8) | Hodina × mesiac (sekcia 10) |
+|---|---|
+| ![Priemerná cena podľa hodiny dňa](docs/img/daily-profile.png) | ![Heatmapa hodina × mesiac](docs/img/heatmap.png) |
+
+![Dnešná cena vs. včerajšia s regresnou priamkou](docs/img/regression.png)
+
+Hlavné zistenia zo skutočných dát (slovne, presné čísla ukáže notebook po spustení):
 
 - Energetická kríza v rokoch 2021 – 2022 je v dátach jasne vidieť. Ceny potom klesli, ale zostali
   vyššie ako pred krízou.
@@ -189,6 +204,7 @@ s upozornením, že treba najprv spustiť `main.py`.
 main.py           zber dát: scraping webu, história z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
 requirements.txt  knižnice s presnými verziami
+docs/             ilustračné grafy pre README a skript, ktorý ich kreslí z vymyslených dát
 .gitignore        dáta, ktoré sa nesmú zverejniť
 prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 ```
