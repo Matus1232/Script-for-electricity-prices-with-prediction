@@ -1,0 +1,30 @@
+# Runs the code check (ruff) and the tests (pytest) on every push to main and on every pull request.
+# The tests need no database and no internet: they use made-up data and fake responses.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+
+      - name: Install libraries
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Code check (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest)
+        env:
+          TZ: Europe/Bratislava  # tests convert times like the local PC does
+        run: pytest -v

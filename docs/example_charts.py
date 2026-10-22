@@ -6,9 +6,9 @@ Run from the project folder:  python docs/example_charts.py
 """
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
 out_dir = os.path.join(os.path.dirname(__file__), 'img')

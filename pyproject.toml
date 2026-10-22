@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]   # tests can import main.py and predict.py
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["*.ipynb"]
