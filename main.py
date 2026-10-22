@@ -71,14 +71,14 @@ def create_table(conn):
 
 
 def missing_ranges(conn):
-    """Date ranges to download from the API (first run = everything since 2015)"""
+    """Date ranges to download from the API, up to today (first run = everything since 2015)"""
     first, last = conn.execute('SELECT MIN(date), MAX(date) FROM prices').fetchone()  # (None, None) if empty
-    yesterday = date.today() - timedelta(days=1)
+    today = date.today()
     if first is None:
-        ranges = [(history_start, yesterday)]
+        ranges = [(history_start, today)]
     else:
         ranges = [(history_start, date.fromisoformat(first) - timedelta(days=1)),  # before the oldest day
-                  (date.fromisoformat(last), yesterday)]  # the last day again: its scraped prices get API precision
+                  (date.fromisoformat(last), today)]  # the last day again: its scraped prices get API precision
     return [(start, end) for start, end in ranges if start <= end]
 
 
@@ -98,15 +98,19 @@ def main():
     conn = sqlite3.connect(db_file)  # creates the file if it doesn't exist
     create_table(conn)
 
-    for start, end in missing_ranges(conn):
-        print(f'Downloading history {start} - {end}')
-        history = fetch_history(start, end)
-        save(conn, history)  # saved in one go, so a failed download leaves no gaps
-        print(f'Saved {len(history)} history rows to {db_file}')
-
+    # web prices first: the API below then overwrites today with more precise prices
     if rows:
         save(conn, rows)
         print(f'Saved {len(rows)} rows to {db_file}')
+
+    try:
+        for start, end in missing_ranges(conn):
+            print(f'Downloading history {start} - {end}')
+            history = fetch_history(start, end)
+            save(conn, history)  # saved in one go, so a failed download leaves no gaps
+            print(f'Saved {len(history)} history rows to {db_file}')
+    except requests.RequestException as e:  # API down -> keep what the web page gave
+        print(f'API not available: {e}')
     conn.close()  # `with conn` does NOT close the connection
 
 
