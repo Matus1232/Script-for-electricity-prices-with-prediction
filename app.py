@@ -1,7 +1,7 @@
 """Streamlit dashboard: prices, patterns and tomorrow's forecast.
 
-    streamlit run app.py              # real data from prices.db (demo data if it does not exist)
-    streamlit run app.py -- --demo    # always made-up data, safe to show publicly
+    python -m streamlit run app.py              # real data from prices.db (demo data if it does not exist)
+    python -m streamlit run app.py -- --demo    # always made-up data, safe to show publicly
 """
 import os
 import sys
@@ -93,7 +93,8 @@ cols[2].metric('Najdrahšia hodina (€/kWh)', f'{selected.max():.3f}')
 cols[2].caption(f'{selected.idxmax():%d.%m.%Y %H:00}')
 cols[3].metric('Hodín so zápornou cenou', f'{(selected < 0).sum()}')
 
-tab_forecast, tab_trend, tab_day, tab_heat = st.tabs(['Predpoveď na zajtra', 'Vývoj ceny', 'Priebeh dňa', 'Hodina × mesiac'])
+tab_forecast, tab_check, tab_trend, tab_day, tab_heat = st.tabs(
+    ['Predpoveď na zajtra', 'Presnosť predpovedí', 'Vývoj ceny', 'Priebeh dňa', 'Hodina × mesiac'])
 
 # --- tomorrow's forecast with the cheapest window ---
 with tab_forecast:
@@ -112,6 +113,49 @@ with tab_forecast:
         tooltip=[alt.Tooltip('hodina:O'), alt.Tooltip('cena:Q', format='.3f', title='€/kWh')],
     )
     st.altair_chart(chart, width='stretch')
+
+# --- saved forecasts of predict.py vs. the real prices ---
+with tab_check:
+    checked = pd.DataFrame() if demo else predict.evaluate_forecasts(price)
+    if checked.empty:
+        st.info('V demo režime sa predpovede neukladajú.' if demo else
+                'Zatiaľ nie je čo porovnať. `python predict.py` uloží predpoveď na zajtra a keď na druhý deň '
+                '`main.py` stiahne skutočné ceny, predpoveď sa tu vyhodnotí.')
+    else:
+        checked['model'] = (checked['predicted'] - checked['actual']).abs()
+        checked['baseline: zajtra = dnes'] = (checked['baseline'] - checked['actual']).abs()
+        per_day = checked.groupby('date')[['model', 'baseline: zajtra = dnes']].mean()
+
+        cols = st.columns(3)
+        cols[0].metric('Vyhodnotené dni', len(per_day))
+        cols[1].metric('MAE modelu (€/kWh)', f"{per_day['model'].mean():.4f}")
+        cols[2].metric('MAE baseline (€/kWh)', f"{per_day['baseline: zajtra = dnes'].mean():.4f}")
+
+        day = st.selectbox('Deň', per_day.index[::-1])  # newest first
+        one = checked[checked['date'] == day]
+        hourly = pd.DataFrame({'hodina': one['hour'].tolist() * 2,
+                               'cena': one['actual'].tolist() + one['predicted'].tolist(),
+                               'séria': ['skutočná cena'] * len(one) + ['predpoveď'] * len(one)})
+        chart = alt.Chart(hourly).mark_line(strokeWidth=2, point=alt.OverlayMarkDef(size=30)).encode(
+            x=alt.X('hodina:O', title='hodina', axis=alt.Axis(labelAngle=0)),
+            y=alt.Y('cena:Q', title='€/kWh'),
+            color=alt.Color('séria:N', scale=alt.Scale(domain=['skutočná cena', 'predpoveď'], range=[blue, orange]),
+                            legend=alt.Legend(title=None, orient='top')),
+            tooltip=['séria:N', 'hodina:O', alt.Tooltip('cena:Q', format='.3f', title='€/kWh')],
+        )
+        st.altair_chart(chart, width='stretch')
+
+        if len(per_day) > 1:
+            daily_mae = per_day.reset_index().melt('date', var_name='séria', value_name='MAE')
+            chart = alt.Chart(daily_mae).mark_line(strokeWidth=2, point=True).encode(
+                x=alt.X('date:T', title=None, axis=alt.Axis(format='%d.%m.')),
+                y=alt.Y('MAE:Q', title='MAE (€/kWh)'),
+                color=alt.Color('séria:N', scale=alt.Scale(domain=['model', 'baseline: zajtra = dnes'], range=[blue, gray]),
+                                legend=alt.Legend(title=None, orient='top')),
+                tooltip=[alt.Tooltip('date:T', format='%d.%m.%Y'), 'séria:N', alt.Tooltip('MAE:Q', format='.4f')],
+            )
+            st.altair_chart(chart, width='stretch')
+            st.caption('Priemerná chyba za každý deň. Keď model dlhodobo nie je lepší ako baseline, treba ho vylepšiť.')
 
 # --- daily prices (dots) and 30-day moving average (line) ---
 with tab_trend:

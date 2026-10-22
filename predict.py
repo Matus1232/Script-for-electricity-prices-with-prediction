@@ -5,11 +5,13 @@
     python predict.py --hours 6    # cheapest 6 hours in a row instead of 4
 
 Same features and model as prediction.ipynb (gradient boosting won there).
+Every forecast is saved to the `forecasts` table, and once the real prices of that day are in
+the database, the next run prints how good the forecast was (model monitoring).
 """
 import argparse
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timedelta
 
 import joblib
 import pandas as pd
@@ -18,6 +20,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 db_file = 'prices.db'
 model_file = os.path.join('models', 'model.joblib')
 train_start = '2023-01-01'  # after the 2022 crisis, as in prediction.ipynb
+retrain_after_days = 7        # older model -> trained again with the newest data
 features = ['hour', 'weekday', 'month', 'is_weekend',
             'lag_24', 'lag_48', 'lag_168', 'prev_day_mean', 'prev_week_mean']
 
@@ -75,6 +78,42 @@ def predict_tomorrow(model, price):
     return pd.Series(model.predict(X), index=hours.hour, name=tomorrow.date())
 
 
+def save_forecast(forecast):
+    """Store the forecast so it can be compared with the real prices later"""
+    conn = sqlite3.connect(db_file)
+    with conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS forecasts (
+                date      TEXT    NOT NULL,
+                hour      INTEGER NOT NULL,
+                predicted REAL    NOT NULL,
+                created   TEXT    NOT NULL,
+                PRIMARY KEY (date, hour)
+            )
+        ''')
+        created = datetime.now().isoformat(timespec='seconds')
+        # the same day forecast again -> the newer forecast replaces the older one
+        conn.executemany('INSERT OR REPLACE INTO forecasts (date, hour, predicted, created) VALUES (?, ?, ?, ?)',
+                         [(forecast.name.isoformat(), int(h), float(v), created) for h, v in forecast.items()])
+    conn.close()
+
+
+def evaluate_forecasts(price):
+    """Saved forecasts next to the real prices -> one row per hour (only days whose real prices are known)"""
+    conn = sqlite3.connect(db_file)
+    has_table = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'forecasts'").fetchone()
+    saved = pd.read_sql('SELECT date, hour, predicted FROM forecasts', conn) if has_table else pd.DataFrame()
+    conn.close()
+    if saved.empty:
+        return saved
+
+    saved['time'] = pd.to_datetime(saved['date']) + pd.to_timedelta(saved['hour'], unit='h')
+    saved = saved.set_index('time')
+    saved['actual'] = price.reindex(saved.index)
+    saved['baseline'] = price.reindex(saved.index - pd.Timedelta(hours=24)).values  # "tomorrow = today"
+    return saved.dropna()
+
+
 def cheapest_window(forecast, hours):
     """First and last hour of the cheapest `hours` hours in a row"""
     total = forecast.rolling(hours).sum()  # price of `hours` hours ending at each hour
@@ -93,14 +132,29 @@ def main():
     if last_day < date.today():
         print(f'Data ends on {last_day} - run main.py for a forecast of tomorrow')
 
-    if args.train or not os.path.exists(model_file):
+    # how good were the earlier forecasts?
+    checked = evaluate_forecasts(price)
+    if not checked.empty:
+        errors = checked.assign(model=(checked['predicted'] - checked['actual']).abs(),
+                                today=(checked['baseline'] - checked['actual']).abs())
+        last = errors.loc[errors['date'] == errors['date'].max()]
+        print(f"Forecast for {last['date'].iloc[0]} vs. real prices: MAE {last['model'].mean():.4f} €/kWh, "
+              f"baseline 'tomorrow = today' {last['today'].mean():.4f}")
+        print(f"All {errors['date'].nunique()} checked days: MAE {errors['model'].mean():.4f} €/kWh, "
+              f"baseline {errors['today'].mean():.4f}\n")
+
+    saved = joblib.load(model_file) if os.path.exists(model_file) else None
+    too_old = saved is not None and saved['trained_until'] < last_day - timedelta(days=retrain_after_days)
+    if args.train or saved is None or too_old:
+        if too_old:
+            print(f"Model is older than {retrain_after_days} days (data until {saved['trained_until']}), training a new one")
         model = train(price)
     else:
-        saved = joblib.load(model_file)
         model = saved['model']
         print(f"Model trained on data until {saved['trained_until']} (python predict.py --train to retrain)")
 
     forecast = predict_tomorrow(model, price)
+    save_forecast(forecast)
     start, end = cheapest_window(forecast, args.hours)
 
     print(f'\nForecast for {forecast.name}:')

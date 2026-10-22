@@ -5,5 +5,8 @@ prices_electricity.csv
 # Trained model - learned from the same data, so it is not published either
 models/
 
+# Logs of the daily run contain prices too
+logs/
+
 # Python cache
 __pycache__/
