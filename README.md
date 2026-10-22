@@ -52,15 +52,16 @@ flowchart LR
 ```
 
 Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web ukazuje len dnešok
-(a denné priemery za posledných 30 dní), staršie hodinové ceny poskytuje iba API.
+(a denné priemery za posledných 30 dní), API má celú históriu aj dnešok. Web je preto záloha:
+keď nefunguje API, dnešné ceny prídu aspoň z neho.
 
 ### Zber dát
 
 `main.py` pri každom spustení urobí tri veci:
 
-1. **Stiahne dnešné ceny z webu.** Z HTML tabuľky prečíta 24 hodín a vypíše ich do terminálu.
-2. **Doplní históriu z API.** Pozrie sa, ktoré dni v databáze chýbajú, a stiahne len tie.
-3. **Uloží dnešné ceny do databázy.**
+1. **Stiahne dnešné ceny z webu.** Z HTML tabuľky prečíta 24 hodín, vypíše ich do terminálu
+   a uloží do databázy.
+2. **Doplní z API dni, ktoré chýbajú**, až po dnešok. Dnešok z webu tým prepíše presnejšími cenami.
 
 Každý krok je samostatná funkcia (`scrape_today`, `missing_ranges`, `fetch_history`, `save`)
 a funkcia `main` ich len zavolá v tomto poradí.
@@ -70,25 +71,23 @@ Ktoré dni sa sťahujú z API:
 ```mermaid
 flowchart TD
     S["Spustenie main.py"] --> P{"Je databáza<br>prázdna?"}
-    P -- áno --> ALL["Stiahne všetko<br>od 1. 1. 2015 po včerajšok"]
+    P -- áno --> ALL["Stiahne všetko<br>od 1. 1. 2015 po dnešok"]
     P -- nie --> B{"Chýbajú dni pred<br>najstarším dňom?"}
     B -- áno --> OLD["Stiahne ich"]
-    B -- nie --> A{"Je posledný deň<br>v databáze starší ako dnes?"}
-    OLD --> A
-    A -- áno --> NEW["Stiahne posledný deň znova<br>a všetky dni po ňom až po včerajšok"]
-    A -- nie --> X["Nesťahuje nič"]
+    B -- nie --> NEW["Stiahne posledný deň v databáze znova<br>a všetky dni po ňom až po dnešok"]
+    OLD --> NEW
 ```
 
-Prvé spustenie trvá dve až tri minúty. Ďalšie spustenia v ten istý deň už z API nesťahujú nič
-a po pár vynechaných dňoch stiahnu len tie dni.
+Prvé spustenie trvá dve až tri minúty. Ďalšie spustenia v ten istý deň stiahnu z API len dnešok
+a po pár vynechaných dňoch len tie dni.
 
 Posledný deň sa sťahuje znova zámerne. Ceny z webu sú zaokrúhlené na 3 desatinné miesta, z API
-na 5. Keď skript beží každý deň, včerajšie ceny z webu sa tak na druhý deň nahradia presnejšími z API.
+na 5, takže sa ceny z webu vždy nahradia presnejšími z API.
 
 Pár vecí, ktoré nie sú na prvý pohľad vidieť:
 
-- **Výpadok webu nezastaví skript.** Keď web nefunguje alebo nie je internet, skript to vypíše
-  a históriu z API doplní aj tak. Dnešné ceny sa vtedy uložia pri ďalšom úspešnom spustení.
+- **Výpadok jedného zdroja nezastaví skript.** Keď nefunguje web, skript to vypíše a všetko vrátane
+  dneška stiahne z API. Keď nefunguje API, uloží aspoň dnešné ceny z webu.
 - **API sa nesmie zahltiť.** Pustí približne jednu požiadavku za 15 sekúnd. Skript preto sťahuje
   po celých rokoch (jedna požiadavka = jeden rok). Keď API odpovie `429 Too Many Requests`,
   počká toľko, koľko server povie v hlavičke `Retry-After`, a skúsi to znova.
@@ -226,7 +225,12 @@ python predict.py
 
 Skript vypíše ceny na 24 hodín dňa po poslednom dni v databáze a najlacnejšie 4 hodiny za sebou.
 Pri prvom spustení natrénuje model (gradient boosting, ten istý ako v notebooku) a uloží ho do
-`models/model.joblib`, ďalšie spustenia ho len načítajú.
+`models/model.joblib`, ďalšie spustenia ho len načítajú. Keď je model starší ako 7 dní, natrénuje
+sa sám znova s najnovšími dátami.
+
+**Sledovanie presnosti (monitoring).** Každá predpoveď sa uloží do tabuľky `forecasts` v `prices.db`.
+Keď `main.py` na druhý deň stiahne skutočné ceny, `predict.py` pri ďalšom spustení najprv vypíše,
+ako sa predpoveď trafila (MAE modelu vs. baseline „zajtra = dnes“), a až potom predpovedá ďalší deň.
 
 | Príkaz | Čo robí |
 |---|---|
@@ -236,10 +240,27 @@ Pri prvom spustení natrénuje model (gradient boosting, ten istý ako v noteboo
 
 Model je naučený na dátach z Energy-Charts, preto je tiež v `.gitignore`.
 
+### Automatické spúšťanie každý deň
+
+[`run_daily.bat`](run_daily.bat) spustí `main.py` a potom `predict.py` a všetko, čo vypíšu, pridá do
+`logs/daily.log`. Vo Windows ho stačí naplánovať v Plánovači úloh (Task Scheduler), napríklad každý deň
+o 8:00. Predpoveď má zmysel ráno, ešte pred zverejnením zajtrajších cien okolo 13:00. Naplánovať sa
+dá aj príkazom v PowerShelli (spusti ho v priečinku projektu):
+
+```powershell
+$action = New-ScheduledTaskAction -Execute "$PWD\run_daily.bat"
+$trigger = New-ScheduledTaskTrigger -Daily -At 8:00
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+Register-ScheduledTask -TaskName "Ceny elektriny" -Action $action -Trigger $trigger -Settings $settings
+```
+
+`-StartWhenAvailable` znamená, že keď je počítač o 8:00 vypnutý, úloha sa spustí hneď po zapnutí.
+Zrušíš ju príkazom `Unregister-ScheduledTask -TaskName "Ceny elektriny"`.
+
 ### 6. Dashboard
 
 ```bash
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 V prehliadači sa otvorí `http://localhost:8501`. Vľavo sa vyberá obdobie a dĺžka okna na nabíjanie,
@@ -249,6 +270,7 @@ a pod nimi štyri záložky:
 | Záložka | Čo ukazuje |
 |---|---|
 | Predpoveď na zajtra | 24 predpovedaných cien, najlacnejšie okno oranžovo |
+| Presnosť predpovedí | uložené predpovede vs. skutočné ceny, MAE modelu a baseline po dňoch |
 | Vývoj ceny | denné ceny ako bodky a 30-dňový kĺzavý priemer ako čiara |
 | Priebeh dňa | priemerná cena podľa hodiny, pracovný deň vs. víkend |
 | Hodina × mesiac | heatmapa |
@@ -256,12 +278,39 @@ a pod nimi štyri záložky:
 Na grafy sa dá najazdiť myšou a zobrazí sa presná hodnota. Predpoveď používa funkcie a uložený
 model z `predict.py`.
 
-**Demo režim:** `streamlit run app.py -- --demo` (alebo keď `prices.db` neexistuje) zobrazí
+**Demo režim:** `python -m streamlit run app.py -- --demo` (alebo keď `prices.db` neexistuje) zobrazí
 vymyslené dáta s upozornením navrchu. Model sa vtedy trénuje len v pamäti a uložený model
 neprepíše. Tento režim sa dá ukázať aj verejne, skutočné dáta len lokálne.
 
 > ⚠️ Pred commitom daj v notebooku **Clear All Outputs**. VS Code ukladá grafy a tabuľky priamo do
 > súboru notebooku a tie sa na GitHub dostať nesmú.
+
+## Testy
+
+Testy v priečinku [`tests/`](tests) nepotrebujú databázu ani internet. Odpovede webu a API v nich
+nahrádzajú falošné odpovede a ceny sú vymyslené, takže sa dá presne skontrolovať každá hodnota.
+
+| Súbor | Čo kontroluje |
+|---|---|
+| `test_main.py` | čítanie HTML tabuľky, výpadok webu, priemerovanie 15-minútových cien a prevod €/MWh → €/kWh, čakanie po `429`, sťahovanie po rokoch, výber chýbajúcich dní, zápis bez duplikátov |
+| `test_predict.py` | lagy a priemery dní bez úniku dát, predpoveď na deň po poslednom dni, zastavenie pri chýbajúcich dňoch, najlacnejšie okno, uloženie a vyhodnotenie predpovede |
+
+Spustenie (knižnice na vývoj sú v `requirements-dev.txt`):
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+```bash
+python -m pytest
+```
+
+```bash
+python -m ruff check .
+```
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) pri každom pushi do `main`
+a pri každom pull requeste nainštaluje knižnice, skontroluje kód (`ruff`) a spustí testy.
 
 ## Známe obmedzenia
 
@@ -269,8 +318,6 @@ neprepíše. Tento režim sa dá ukázať aj verejne, skutočné dáta len loká
   `interpolate()`, inak ostávajú prázdne.
 - **Letný čas.** Posledná nedeľa v marci má len 23 hodín. V októbri je hodina 2:00 dvakrát
   a v databáze je z nich priemer.
-- **Dnešok je menej presný.** Kým skript nebeží znova na ďalší deň, má dnešok ceny z webu
-  zaokrúhlené na 3 desatinné miesta.
 
 ## Štruktúra projektu
 
@@ -280,6 +327,11 @@ analysis.ipynb    analýza: štatistika a grafy
 prediction.ipynb  predikcia: strojové učenie
 predict.py        predpoveď na zajtra jedným príkazom, uloží model do models/ (nie je v Gite)
 app.py            dashboard v Streamlite, so skutočnými alebo vymyslenými dátami
+run_daily.bat     denné spustenie main.py a predict.py, výstup do logs/ (nie je v Gite)
+tests/            testy pre main.py a predict.py (pytest)
+.github/          GitHub Actions: kontrola kódu a testy pri každom pushi
+pyproject.toml    nastavenie pytest a ruff
+requirements-dev.txt  knižnice len na vývoj (pytest, ruff)
 requirements.txt  knižnice s presnými verziami
 docs/             ilustračné grafy pre README a skript, ktorý ich kreslí z vymyslených dát
 .gitignore        dáta, ktoré sa nesmú zverejniť
@@ -296,5 +348,8 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 - [x] Predikcia cien na ďalší deň (baseline, lineárna regresia, Random Forest, gradient boosting)
 - [x] Skript `predict.py` s uloženým modelom
 - [x] Dashboard v Streamlite s demo režimom
+- [x] Ukladanie predpovedí a sledovanie ich presnosti
+- [x] Denné spúšťanie cez Plánovač úloh
+- [x] Testy (pytest) a GitHub Actions
 - [ ] Ďalšie vstupy: sviatky, predpoveď počasia a výroby zo slnka a vetra
 - [ ] Experiment s hlbokým učením (MLP, LSTM)
