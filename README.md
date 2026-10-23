@@ -9,8 +9,8 @@ na faktúre. Dobre však ukazujú, kedy je elektriny v sieti dosť a kedy je dra
 
 Projekt má štyri časti:
 
-- **Zber dát** ([`main.py`](main.py)): stiahne dnešné ceny z webu, pri prvom spustení dotiahne celú
-  históriu od roku 2015 a pri ďalších spusteniach doplní len dni, ktoré chýbajú.
+- **Zber dát** ([`main.py`](main.py)): pri prvom spustení stiahne z API celú históriu od roku 2015
+  a pri ďalších spusteniach doplní len dni, ktoré chýbajú, až po dnešok.
 - **Analýza** ([`analysis.ipynb`](analysis.ipynb)): Jupyter notebook so štatistikou a grafmi, napríklad
   ako sa cena menila počas rokov, v ktorú hodinu je elektrina najlacnejšia alebo ako často je cena záporná.
 - **Predikcia** ([`prediction.ipynb`](prediction.ipynb)): modely strojového učenia, ktoré predpovedajú
@@ -42,8 +42,7 @@ Kód je verejný. Kto ho spustí, stiahne si dáta sám pre vlastnú potrebu.
 
 ```mermaid
 flowchart LR
-    W["energyprices.eu<br>dnešné ceny"] -- "scraping" --> M["main.py"]
-    E["Energy-Charts API<br>história od 2015"] -- "JSON" --> M
+    E["Energy-Charts API<br>ceny od 2015 po dnešok"] -- "JSON" --> M["main.py"]
     M -- "uloží" --> D[("prices.db")]
     D -- "pandas" --> N["analysis.ipynb<br>štatistika a grafy"]
     D -- "pandas" --> P["prediction.ipynb<br>strojové učenie"]
@@ -51,22 +50,20 @@ flowchart LR
     S -- "funkcie" --> A["app.py<br>dashboard"]
 ```
 
-Oba zdroje majú rovnaké dáta, pôvodne z európskej platformy ENTSO-E. Web ukazuje len dnešok
-(a denné priemery za posledných 30 dní), API má celú históriu aj dnešok. Web je preto záloha:
-keď nefunguje API, dnešné ceny prídu aspoň z neho.
+API má ceny z európskej platformy ENTSO-E.
+
+**Prečo tu nie je scraping:** projekt pôvodne scrapoval dnešné ceny z webu energyprices.eu
+a z API bral len históriu. V októbri 2026 web bez varovania skončil („This site is no longer available“).
+Projekt to ustál bez výpadku: výpadok jedného zdroja skript nezastavil a API už vtedy vedelo aj
+dnešok. Scraping som potom odstránil, lebo keď existuje API, je stabilnejšie ako čítanie HTML
+stránky, ktorá môže kedykoľvek zmeniť vzhľad alebo skončiť.
 
 ### Zber dát
 
-`main.py` pri každom spustení urobí tri veci:
+`main.py` pri každom spustení zistí, ktoré dni v databáze chýbajú (`missing_ranges`), stiahne ich
+z API (`fetch_history`) a uloží (`save`). Funkcia `main` tieto kroky len zavolá v poradí.
 
-1. **Stiahne dnešné ceny z webu.** Z HTML tabuľky prečíta 24 hodín, vypíše ich do terminálu
-   a uloží do databázy.
-2. **Doplní z API dni, ktoré chýbajú**, až po dnešok. Dnešok z webu tým prepíše presnejšími cenami.
-
-Každý krok je samostatná funkcia (`scrape_today`, `missing_ranges`, `fetch_history`, `save`)
-a funkcia `main` ich len zavolá v tomto poradí.
-
-Ktoré dni sa sťahujú z API:
+Ktoré dni sa sťahujú:
 
 ```mermaid
 flowchart TD
@@ -78,16 +75,13 @@ flowchart TD
     OLD --> NEW
 ```
 
-Prvé spustenie trvá dve až tri minúty. Ďalšie spustenia v ten istý deň stiahnu z API len dnešok
-a po pár vynechaných dňoch len tie dni.
-
-Posledný deň sa sťahuje znova zámerne. Ceny z webu sú zaokrúhlené na 3 desatinné miesta, z API
-na 5, takže sa ceny z webu vždy nahradia presnejšími z API.
+Prvé spustenie trvá dve až tri minúty. Ďalšie spustenia v ten istý deň stiahnu len dnešok
+a po pár vynechaných dňoch len tie dni. Posledný deň sa sťahuje znova pre prípad, že nebol úplný.
 
 Pár vecí, ktoré nie sú na prvý pohľad vidieť:
 
-- **Výpadok jedného zdroja nezastaví skript.** Keď nefunguje web, skript to vypíše a všetko vrátane
-  dneška stiahne z API. Keď nefunguje API, uloží aspoň dnešné ceny z webu.
+- **Výpadok API nezhodí skript.** Keď API alebo internet nefunguje, skript to vypíše a dáta, ktoré
+  už sú v databáze, ostanú. Chýbajúce dni stiahne pri ďalšom spustení.
 - **API sa nesmie zahltiť.** Pustí približne jednu požiadavku za 15 sekúnd. Skript preto sťahuje
   po celých rokoch (jedna požiadavka = jeden rok). Keď API odpovie `429 Too Many Requests`,
   počká toľko, koľko server povie v hlavičke `Retry-After`, a skúsi to znova.
@@ -98,7 +92,7 @@ Pár vecí, ktoré nie sú na prvý pohľad vidieť:
   sťahovanie spadne, neuloží sa nič a pri ďalšom spustení sa stiahne celé znova.
 - **Od októbra 2025 sú ceny po 15 minútach.** API vtedy vracia štyri ceny na hodinu, skript z nich
   spraví hodinový priemer, aby boli všetky dáta v rovnakom tvare.
-- **Jednotky.** API vracia €/MWh, skript ich prepočíta na €/kWh, rovnako ako na webe.
+- **Jednotky.** API vracia €/MWh, skript ich prepočíta na €/kWh, v ktorých sa ceny bežne uvádzajú.
 - **Čas.** API posiela čas ako unixový timestamp a skript ho prevedie na miestny čas počítača.
   Na Slovensku (SEČ/SELČ) je to správne. Na počítači v inom časovom pásme by sa hodiny posunuli.
 
@@ -191,8 +185,7 @@ Presné verzie sú v [`requirements.txt`](requirements.txt):
 
 | Knižnica | Načo je |
 |---|---|
-| `requests` | sťahovanie webu a volanie API |
-| `beautifulsoup4` | čítanie HTML tabuľky z webu |
+| `requests` | volanie API |
 | `pandas`, `numpy` | práca s dátami a výpočty v notebooku |
 | `matplotlib` | grafy |
 | `ipykernel` | aby VS Code vedel spúšťať notebook |
@@ -250,11 +243,13 @@ dá aj príkazom v PowerShelli (spusti ho v priečinku projektu):
 ```powershell
 $action = New-ScheduledTaskAction -Execute "$PWD\run_daily.bat"
 $trigger = New-ScheduledTaskTrigger -Daily -At 8:00
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName "Ceny elektriny" -Action $action -Trigger $trigger -Settings $settings
 ```
 
 `-StartWhenAvailable` znamená, že keď je počítač o 8:00 vypnutý, úloha sa spustí hneď po zapnutí.
+Bez `-AllowStartIfOnBatteries` by Windows na notebooku bez nabíjačky úlohu nespustil, len by čakala
+vo fronte (stav „Queued“).
 Zrušíš ju príkazom `Unregister-ScheduledTask -TaskName "Ceny elektriny"`.
 
 ### 6. Dashboard
@@ -287,12 +282,12 @@ neprepíše. Tento režim sa dá ukázať aj verejne, skutočné dáta len loká
 
 ## Testy
 
-Testy v priečinku [`tests/`](tests) nepotrebujú databázu ani internet. Odpovede webu a API v nich
+Testy v priečinku [`tests/`](tests) nepotrebujú databázu ani internet. Odpovede API v nich
 nahrádzajú falošné odpovede a ceny sú vymyslené, takže sa dá presne skontrolovať každá hodnota.
 
 | Súbor | Čo kontroluje |
 |---|---|
-| `test_main.py` | čítanie HTML tabuľky, výpadok webu, priemerovanie 15-minútových cien a prevod €/MWh → €/kWh, čakanie po `429`, sťahovanie po rokoch, výber chýbajúcich dní, zápis bez duplikátov |
+| `test_main.py` | výpadok API, priemerovanie 15-minútových cien a prevod €/MWh → €/kWh, čakanie po `429`, sťahovanie po rokoch, výber chýbajúcich dní, zápis bez duplikátov |
 | `test_predict.py` | lagy a priemery dní bez úniku dát, predpoveď na deň po poslednom dni, zastavenie pri chýbajúcich dňoch, najlacnejšie okno, uloženie a vyhodnotenie predpovede |
 
 Spustenie (knižnice na vývoj sú v `requirements-dev.txt`):
@@ -322,7 +317,7 @@ a pri každom pull requeste nainštaluje knižnice, skontroluje kód (`ruff`) a 
 ## Štruktúra projektu
 
 ```
-main.py           zber dát: scraping webu, história z API, zápis do databázy
+main.py           zber dát z API, zápis do databázy
 analysis.ipynb    analýza: štatistika a grafy
 prediction.ipynb  predikcia: strojové učenie
 predict.py        predpoveď na zajtra jedným príkazom, uloží model do models/ (nie je v Gite)
@@ -340,7 +335,7 @@ prices.db         SQLite databáza, vznikne po spustení main.py (nie je v Gite)
 
 ## Stav projektu
 
-- [x] Scraping dnešných cien z webu
+- [x] ~~Scraping dnešných cien z webu~~ (web skončil v októbri 2026, nahradené API)
 - [x] Databáza SQLite a história od roku 2015 z API
 - [x] Analýza: popisná štatistika, časové rady, regresia
 - [x] `requirements.txt`

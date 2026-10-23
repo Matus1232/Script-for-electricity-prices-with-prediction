@@ -1,4 +1,4 @@
-"""Tests for main.py - no internet needed, requests are replaced by fake responses."""
+"""Tests for main.py - no internet needed, the API is replaced by fake responses."""
 import sqlite3
 from datetime import date, datetime, timedelta
 
@@ -7,24 +7,10 @@ import requests
 
 import main
 
-PAGE = """
-<html><body>
-<table>
-  <tbody>
-    <tr><td>00:00 -
-            01:00</td><td>0.189</td></tr>
-    <tr><td>13:00 - 14:00</td><td>-0.012</td></tr>
-  </tbody>
-</table>
-<table><tbody><tr><td>Oct 19, Monday</td><td>0.253</td></tr></tbody></table>
-</body></html>
-"""
-
 
 class FakeResponse:
-    def __init__(self, status_code=200, content=b'', data=None, headers=None):
+    def __init__(self, status_code=200, data=None, headers=None):
         self.status_code = status_code
-        self.content = content
         self._data = data
         self.headers = headers or {}
 
@@ -34,20 +20,6 @@ class FakeResponse:
 
     def json(self):
         return self._data
-
-
-def test_scrape_today_reads_the_first_table(monkeypatch):
-    monkeypatch.setattr(main.requests, 'get', lambda *args, **kwargs: FakeResponse(content=PAGE.encode()))
-    today = date.today().isoformat()
-
-    assert main.scrape_today() == [(today, 0, 0.189), (today, 13, -0.012)]
-
-
-def test_scrape_today_raises_when_page_is_down(monkeypatch):
-    monkeypatch.setattr(main.requests, 'get', lambda *args, **kwargs: FakeResponse(status_code=521))
-
-    with pytest.raises(requests.RequestException):
-        main.scrape_today()
 
 
 def test_fetch_history_averages_15_minute_prices_and_converts_units(monkeypatch):
@@ -112,6 +84,15 @@ def test_missing_ranges_adds_days_before_the_oldest_day(conn):
 
     assert main.missing_ranges(conn) == [(main.history_start, oldest - timedelta(days=1)),
                                          (date.today(), date.today())]
+
+
+def test_main_keeps_saved_data_when_api_is_down(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(main, 'db_file', str(tmp_path / 'test.db'))
+    monkeypatch.setattr(main.requests, 'get', lambda *args, **kwargs: FakeResponse(status_code=503))
+
+    main.main()  # must not crash
+
+    assert 'API not available' in capsys.readouterr().out
 
 
 def test_save_replaces_instead_of_duplicating(conn):
