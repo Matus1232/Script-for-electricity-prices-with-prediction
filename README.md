@@ -1,5 +1,7 @@
 # Ceny elektriny na Slovensku
 
+**Slovenčina** | [English](README.en.md)
+
 Projekt, ktorý zbiera hodinové ceny elektriny na Slovensku, ukladá ich do databázy, analyzuje ich
 a pomocou strojového učenia predpovedá ceny na ďalší deň.
 
@@ -260,7 +262,7 @@ python -m streamlit run app.py
 
 V prehliadači sa otvorí `http://localhost:8501`. Vľavo sa vyberá obdobie a dĺžka okna na nabíjanie,
 hore sú hlavné čísla za obdobie (priemer, najlacnejšia a najdrahšia hodina, počet záporných hodín)
-a pod nimi štyri záložky:
+a pod nimi päť záložiek:
 
 | Záložka | Čo ukazuje |
 |---|---|
