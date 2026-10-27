@@ -126,6 +126,8 @@ def main():
     parser.add_argument('--train', action='store_true', help='train a new model on the latest data')
     parser.add_argument('--hours', type=int, default=4, help='length of the cheapest window (default 4)')
     args = parser.parse_args()
+    if not 1 <= args.hours <= 24:  # the window has to fit into one day
+        parser.error('--hours must be between 1 and 24')
 
     price = load_prices()
     last_day = price.index.max().date()
